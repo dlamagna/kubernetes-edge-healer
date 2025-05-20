@@ -35,10 +35,7 @@ parser.add_argument(
 args = parser.parse_args()
 
 # —— SETUP LOGGING ——
-# Ensure log directory exists
 os.makedirs(LOG_DIR, exist_ok=True)
-
-# File handler (always DEBUG level)
 file_handler = logging.FileHandler(LOG_FILE)
 file_handler.setLevel(logging.DEBUG)
 file_formatter = logging.Formatter(
@@ -46,7 +43,6 @@ file_formatter = logging.Formatter(
 )
 file_handler.setFormatter(file_formatter)
 
-# Console handler (INFO level by default, DEBUG if verbose)
 console_handler = logging.StreamHandler(sys.stdout)
 console_level = logging.DEBUG if args.verbose else logging.INFO
 console_handler.setLevel(console_level)
@@ -58,11 +54,11 @@ console_handler.setFormatter(console_formatter)
 logging.basicConfig(level=logging.DEBUG, handlers=[file_handler, console_handler])
 log = logging.getLogger("measure_latency")
 
-# ________________________
 
 def run_cmd(cmd):
     log.debug(f"Running shell command: {cmd}")
     return subprocess.check_call(cmd, shell=True)
+
 
 def block_api():
     log.info(f"Blocking API server {API_SERVER}:{API_PORT}")
@@ -72,7 +68,7 @@ def block_api():
         f"-d {API_SERVER} "
         f"-j DROP"
     )
-    log.debug("API server blocked")
+
 
 def unblock_api():
     log.info("Unblocking API server")
@@ -82,15 +78,41 @@ def unblock_api():
         f"-d {API_SERVER} "
         f"-j DROP"
     )
-    log.debug("API server unblocked")
+
+
 def ensure_nft_base():
-    # Create table & chain if they don't exist
     subprocess.call("nft list table inet filter >/dev/null 2>&1 || sudo nft add table inet filter", shell=True)
     subprocess.call(
         "nft list chain inet filter output >/dev/null 2>&1 || "
         "sudo nft add chain inet filter output '{ type filter hook output priority 0; policy accept; }'",
         shell=True
     )
+
+
+def delete_pod_local(pod_name):
+    """
+    While the API is unreachable, use crictl to kill & remove the pod's container directly on this node.
+    """
+    log.info(f"Locally deleting pod {pod_name} via crictl")
+    # Find the container ID by label
+    get_cid = (
+        f"crictl ps --state=running "
+        f"--label io.kubernetes.pod.name={pod_name} "
+        f"-o go-template='{{{{range .containers}}}}{{{{.id}}}}{{{{end}}}}'"
+    )
+    try:
+        cid = subprocess.check_output(get_cid, shell=True).decode().strip()
+    except subprocess.CalledProcessError:
+        log.error(f"Failed to get container ID for pod {pod_name}")
+        return
+    if not cid:
+        log.error(f"No running container found for pod {pod_name}")
+        return
+
+    run_cmd(f"sudo crictl stop {cid}")
+    run_cmd(f"sudo crictl rm   {cid}")
+    log.info(f"Pod {pod_name} container {cid} stopped & removed")
+
 
 def get_restore_count():
     log.debug(f"Fetching metrics from {METRICS_URL}")
@@ -104,26 +126,19 @@ def get_restore_count():
         log.error(f"Metrics endpoint returned HTTP {resp.status_code}")
         return None
 
-    lines = resp.text.splitlines()
-    for line in lines:
+    for line in resp.text.splitlines():
         if line.startswith("restore_latency_seconds_count"):
-            count = int(float(line.split()[-1]))
-            log.debug(f"Current restore count = {count}")
-            return count
+            return int(float(line.split()[-1]))
 
-    log.error("Metric 'restore_latency_seconds_count' not found! Full payload below:")
-    for line in lines[:50]:
-        log.error("  %s", line)
+    log.error("Metric 'restore_latency_seconds_count' not found!")
     return None
 
+
 def get_pod_name(timeout=30.0, interval=0.5):
-    """
-    Poll until a Pod appears, logging each attempt.
-    """
     log.info(f"Waiting up to {timeout}s for a Pod with label '{LABEL_SELECTOR}'")
     deadline = time.time() + timeout
     attempt = 1
-    while True:
+    while time.time() < deadline:
         try:
             out = subprocess.check_output([
                 "kubectl", "get", "pod",
@@ -137,14 +152,10 @@ def get_pod_name(timeout=30.0, interval=0.5):
                 return pod
         except subprocess.CalledProcessError:
             log.debug(f"Attempt {attempt}: no Pod yet")
-
-        if time.time() > deadline:
-            log.error(f"No Pod matching '{LABEL_SELECTOR}' after {attempt} attempts")
-            raise RuntimeError(
-                f"No Pod matching '{LABEL_SELECTOR}' appeared within {timeout:.1f}s"
-            )
         attempt += 1
         time.sleep(interval)
+    raise RuntimeError(f"No Pod matching '{LABEL_SELECTOR}' within {timeout}s")
+
 
 def measure_restore_latency():
     latencies = []
@@ -153,40 +164,36 @@ def measure_restore_latency():
         pod = get_pod_name()
         pre_count = get_restore_count()
         if pre_count is None:
-            log.error("Cannot read initial restore count — aborting test")
+            log.error("Cannot read initial restore count — aborting")
             sys.exit(1)
 
         # 1) Start network outage
         log.info("Step 1: simulate WAN outage")
         block_api()
-        log.debug(f"Sleeping for OUTAGE_DURATION = {OUTAGE_DURATION}s")
         time.sleep(OUTAGE_DURATION)
 
-        # 2) Delete the Pod while control-plane is down
-        log.info(f"Step 2: deleting Pod {pod}")
+        # 2) Delete the Pod locally while control-plane is down
+        log.info(f"Step 2: deleting Pod {pod} locally")
         start = time.perf_counter()
-        run_cmd(f"kubectl delete pod {pod} -n {BUSYBOX_NAMESPACE} --grace-period=0 --force")
+        delete_pod_local(pod)
 
         # 3) Heal network
         log.info("Step 3: healing WAN")
         unblock_api()
 
-        # 4) Wait until Prometheus counter increments
+        # 4) Wait for restore counter to increment
         log.info("Step 4: waiting for restore counter to increment")
         while True:
             current = get_restore_count()
-            if current > pre_count:
+            if current is not None and current > pre_count:
                 break
-            log.debug(f"restore count {current} ≤ {pre_count}; sleeping 10ms")
             time.sleep(0.01)
 
         latency = time.perf_counter() - start
         latencies.append(latency)
         log.info(f"Pod {pod} restored in {latency:.3f}s")
-        log.debug(f"Sleeping for PAUSE_SECONDS = {PAUSE_SECONDS}s before next iteration")
         time.sleep(PAUSE_SECONDS)
 
-    # Summary
     latencies.sort()
     def pct(p): return latencies[int(p * len(latencies))]
     log.info("=== Summary ===")
@@ -196,16 +203,14 @@ def measure_restore_latency():
 
 
 if __name__ == "__main__":
-    # Ensure we clean up if the script is interrupted
     def cleanup(signum, frame):
-        log.warning("Interrupted! Cleaning up and exiting.")
-        try:
-            unblock_api()
-        except Exception:
-            pass
+        log.warning("Interrupted! Cleaning up.")
+        try: unblock_api()
+        except: pass
         sys.exit(1)
 
     signal.signal(signal.SIGINT,  cleanup)
     signal.signal(signal.SIGTERM, cleanup)
+
     ensure_nft_base()
     measure_restore_latency()
