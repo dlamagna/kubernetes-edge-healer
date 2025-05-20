@@ -1,0 +1,9 @@
+kopf
+kubernetes
+prometheus-client
+serfclient
+pyyaml
+sqlite-utils
+asyncio
+kubernetes-asyncio
+aiosqlite

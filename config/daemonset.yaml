@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: edge-healer
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      app: edge-healer
+  template:
+    metadata:
+      labels:
+        app: edge-healer
+    spec:
+      serviceAccountName: edge-healer
+
+      # ── Pod networking & scheduling ────────────────────────────
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      tolerations:
+        - operator: Exists
+
+      containers:
+        - name: healer
+          image: edge-healer:0.1
+          command: ["python", "-m", "kopf", "run", "-v", "main.py"]
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: GOSSIP_ADDR
+              value: "127.0.0.1:7373"
+          ports:
+            - name: metrics
+              containerPort: 8000
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "128Mi"
+
+        - name: serf
+          image: infrastructureascode/serf:0.8.1
+          command: ["sh", "-c"]
+          args:
+            - exec serf agent \
+                -bind=0.0.0.0 \
+                -rpc-addr=0.0.0.0:7373 \
+                -node="$NODE_NAME" \
+                -tag=role=edge
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          securityContext:
+            capabilities:
+              add: ["NET_RAW"]

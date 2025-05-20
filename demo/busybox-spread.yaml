@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: busybox-spread
+spec:
+  replicas: 3
+  selector:
+    matchLabels: { app: busybox-spread }
+  template:
+    metadata:
+      labels: { app: busybox-spread }
+    spec:
+      terminationGracePeriodSeconds: 0
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels: { app: busybox-spread }
+              topologyKey: kubernetes.io/hostname
+      containers:
+      - name: bb
+        image: busybox:1.36
+        command: ["sh", "-c", "sleep 3600"]

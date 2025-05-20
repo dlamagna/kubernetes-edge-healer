@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: edge-healer
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: edge-healer
+rules:
+  # Allow watching Pods & binding them
+  - apiGroups: [""]
+    resources: ["pods", "pods/binding", "nodes"]
+    verbs: ["get", "list", "watch", "create", "patch"]
+
+  # Allow watching & patching ReplicaSets (including their status)
+  - apiGroups: ["apps"]
+    resources: 
+      - "replicasets"
+      - "replicasets/status"       # ← add the status subresource so Kopf can patch status too
+    verbs: ["get", "list", "watch", "patch"]
+
+  # Allow creating & patching Events
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  # Allow Kopf to discover CRDs for dynamic resource handling
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: edge-healer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: edge-healer
+subjects:
+  - kind: ServiceAccount
+    name: edge-healer
+    namespace: kube-system
