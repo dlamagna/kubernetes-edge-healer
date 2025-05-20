@@ -6,6 +6,7 @@ __pycache__/
 *.pyc
 
 *.txt
+!src/requirements.txt
 *.json
 
 debug/*
