@@ -91,11 +91,13 @@ async def on_pod_gone(meta, namespace, name, body, patch, **kwargs):
 # -----------------------------------------------------------------------------
 @kopf.on.update("apps", "v1", "replicasets")
 @kopf.on.create("apps", "v1", "replicasets")
-async def on_rs_change(spec, meta, body, **_):
-    # cache: DesiredStateCache = kopf.get_global("cache")
-    # await cache.save_rs(body)
-    # use module-level CACHE
-    await CACHE.save_rs(body)
+async def on_rs_change(spec, meta, **_):
+    """
+    spec: the ReplicaSet.spec dict (JSON-serializable)
+    meta: metadata dict, contains 'uid'
+    """
+    uid = meta["uid"]
+    await CACHE.save_rs(spec, uid)
 
 # -----------------------------------------------------------------------------
 # graceful exit helpers -------------------------------------------------------
