@@ -20,6 +20,15 @@ spec:
       tolerations:
         - operator: Exists
 
+      # ── EmptyDir for SQLite DB ─────────────────────────────────
+      volumes:
+        - name: cache-data
+          emptyDir: {}
+        - name: logdir
+          hostPath:
+            # on the node’s filesystem
+            path: /var/log/edge-healer
+            type: DirectoryOrCreate
       containers:
         - name: healer
           image: edge-healer:latest
@@ -33,6 +42,12 @@ spec:
               value: "127.0.0.1:7373"
             - name: LOG_LEVEL
               value: "DEBUG"
+            # ── Mount for persistent cache DB ────────────────────
+          volumeMounts:
+            - name: cache-data
+              mountPath: /data
+            - name: logdir
+              mountPath: /var/log/edge-healer
           ports:
             - name: metrics
               containerPort: 8000
