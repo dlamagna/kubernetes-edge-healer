@@ -1,49 +1,77 @@
 """SQLite helper to persist desired ReplicaSet specs for cold‑boot."""
 import json
 import aiosqlite
+import logging
+import copy
+from typing import MutableMapping
 
-logger = logging.getLogger("edge-healer.cache")
+cache_logger = logging.getLogger("edge-healer.cache")
+cache_logger.setLevel(logging.DEBUG)
 
 class DesiredStateCache:
-    def __init__(self, path: str):
+    def __init__(self, path, *, verbose=True):
         self.path = path
+        self.verbose = verbose
 
     async def init(self):
-        import os, pathlib
-        pathlib.Path(self.path).parent.mkdir(parents=True, exist_ok=True)
-        # open (and create) the DB file
         async with aiosqlite.connect(self.path) as db:
-            await db.execute("CREATE TABLE IF NOT EXISTS rs (uid TEXT PRIMARY KEY, spec TEXT)")
+            await db.execute(
+                "CREATE TABLE IF NOT EXISTS rs (uid TEXT PRIMARY KEY, spec TEXT)"
+            )
             await db.commit()
 
-    async def save_rs(self, spec_dict, uid, verbose=True):
+    async def save_rs(self, rs_obj):
         """
-        Persist only the spec (plain JSON) of the ReplicaSet.
+        Save a ReplicaSet object (Kopf Body or dict) into SQLite.
+        If `self.verbose` is True, emit detailed debug info.
         """
-        if verbose:
-            logger.debug("save_rs: uid=%r, spec_dict type=%s", uid, type(spec_dict))
-            # Optionally show a small preview (if huge, truncate):
-            preview = repr(spec_dict)
-            if len(preview) > 200:
-                preview = preview[:200] + "…"
-            logger.debug("save_rs: spec_dict preview=%s", preview)
+        # Extract UID
+        uid = None
+        if hasattr(rs_obj, "metadata"):
+            uid = rs_obj.metadata.uid
+        else:
+            uid = rs_obj.get("metadata", {}).get("uid")
 
+        # Convert any Kubernetes model into plain dict
         try:
-            spec_str = json.dumps(spec_dict)
+            if hasattr(rs_obj, "to_dict"):
+                data = rs_obj.to_dict()
+            # if it’s Kopf’s Body, it behaves like a dict already:
+            elif isinstance(rs_obj, MutableMapping):
+                data = dict(rs_obj)
+            else:
+                cache_logger.error("Unexpected body type %r", type(rs_obj))
+                raise
+            spec_str = json.dumps(data)
+            
+        except Exception as e:
+            cache_logger.error("Failed to convert rs_obj to dict: %s (%r)", e, rs_obj)
+            raise ValueError("Failed to convert rs_obj to dict: %s (%r)", e, rs_obj)
+
+        if self.verbose:
+            preview = repr(data)
+            if len(preview) > 300:
+                preview = preview[:300] + "…"
+            cache_logger.debug("save_rs: uid=%r, data type=%s, preview=%s",
+                         uid, type(data), preview)
+
+        # JSON-serialize
+        try:
+            spec_str = json.dumps(data)
         except TypeError as e:
-            # Log the exact error and the offending object
-            logger.error("json.dumps failed: %s; object repr=%r", e, spec_dict)
+            cache_logger.error("json.dumps failed on uid=%r: %s; repr(data)=%r",
+                         uid, e, data)
             raise
 
+        # Persist to SQLite
         async with aiosqlite.connect(self.path) as db:
             await db.execute(
                 "REPLACE INTO rs(uid, spec) VALUES(?, ?)",
                 (uid, spec_str)
             )
             await db.commit()
-        
-        if verbose:
-            logger.debug("save_rs: successfully wrote uid=%r", uid)
+        if self.verbose:
+            cache_logger.debug("save_rs: successfully wrote uid=%r", uid)
 
     async def load_all(self):
         async with aiosqlite.connect(self.path) as db:

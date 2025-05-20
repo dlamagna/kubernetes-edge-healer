@@ -15,6 +15,7 @@ from cache import DesiredStateCache
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 logging.basicConfig(level=LOG_LEVEL)
+logging.getLogger("edge-healer.cache").setLevel(logging.DEBUG)
 logger = logging.getLogger("edge-healer")
 
 NODE_NAME = os.getenv("NODE_NAME") or os.uname().nodename
@@ -91,13 +92,9 @@ async def on_pod_gone(meta, namespace, name, body, patch, **kwargs):
 # -----------------------------------------------------------------------------
 @kopf.on.update("apps", "v1", "replicasets")
 @kopf.on.create("apps", "v1", "replicasets")
-async def on_rs_change(spec, meta, **_):
-    """
-    spec: the ReplicaSet.spec dict (JSON-serializable)
-    meta: metadata dict, contains 'uid'
-    """
-    uid = meta["uid"]
-    await CACHE.save_rs(spec, uid)
+async def on_rs_change(body, **_):
+    # body may be a Kubernetes model; save_rs will .to_dict() it for us
+    await CACHE.save_rs(body)
 
 # -----------------------------------------------------------------------------
 # graceful exit helpers -------------------------------------------------------

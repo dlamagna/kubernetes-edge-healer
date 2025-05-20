@@ -22,7 +22,7 @@ spec:
 
       containers:
         - name: healer
-          image: edge-healer:0.1
+          image: edge-healer:latest
           command: ["python", "-m", "kopf", "run", "-v", "main.py"]
           env:
             - name: NODE_NAME
@@ -31,6 +31,8 @@ spec:
                   fieldPath: spec.nodeName
             - name: GOSSIP_ADDR
               value: "127.0.0.1:7373"
+            - name: LOG_LEVEL
+              value: "DEBUG"
           ports:
             - name: metrics
               containerPort: 8000
