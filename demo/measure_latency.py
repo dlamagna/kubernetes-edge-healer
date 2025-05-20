@@ -94,14 +94,27 @@ def ensure_nft_base():
 
 def get_restore_count():
     log.debug(f"Fetching metrics from {METRICS_URL}")
-    resp = requests.get(METRICS_URL, timeout=2)
-    for line in resp.text.splitlines():
+    try:
+        resp = requests.get(METRICS_URL, timeout=2)
+    except requests.RequestException as e:
+        log.error(f"Error fetching metrics endpoint: {e}")
+        return None
+
+    if resp.status_code != 200:
+        log.error(f"Metrics endpoint returned HTTP {resp.status_code}")
+        return None
+
+    lines = resp.text.splitlines()
+    for line in lines:
         if line.startswith("restore_latency_seconds_count"):
             count = int(float(line.split()[-1]))
             log.debug(f"Current restore count = {count}")
             return count
-    log.debug("restore_latency_seconds_count not found; returning 0")
-    return 0
+
+    log.error("Metric 'restore_latency_seconds_count' not found! Full payload below:")
+    for line in lines[:50]:
+        log.error("  %s", line)
+    return None
 
 def get_pod_name(timeout=30.0, interval=0.5):
     """
@@ -139,6 +152,9 @@ def measure_restore_latency():
         log.info(f"=== Iteration {i}/{ITERATIONS} ===")
         pod = get_pod_name()
         pre_count = get_restore_count()
+        if pre_count is None:
+            log.error("Cannot read initial restore count — aborting test")
+            sys.exit(1)
 
         # 1) Start network outage
         log.info("Step 1: simulate WAN outage")
