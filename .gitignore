@@ -1,10 +1,12 @@
 .venv
 .git
 *.env
+
 __pycache__/
 *.pyc
-# *.txt
-*.json
-debug/
-!debug/.gitignore
 
+*.txt
+*.json
+
+debug/*
+!debug/.gitkeep
