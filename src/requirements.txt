@@ -7,3 +7,4 @@ sqlite-utils
 asyncio
 kubernetes-asyncio
 aiosqlite
+matplotlib
