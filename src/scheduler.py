@@ -1,4 +1,4 @@
-"""Bidding & optimistic CAS‑binding logic."""
+"""Bidding & optimistic CAS-binding logic."""
 import asyncio
 import logging
 import time
@@ -21,7 +21,7 @@ async def bid_and_bind(api: client.CoreV1Api, gossip, pod_meta, namespace: str, 
         logger.debug("lost bid for %s/%s", namespace, name)
         return  # lost bid
 
-    # Try optimistic `/binding` sub‑resource and record latency
+    # Try optimistic `/binding` sub-resource and record latency
     start = time.perf_counter()
     target = client.V1Binding(
         metadata=client.V1ObjectMeta(name=name, namespace=namespace),

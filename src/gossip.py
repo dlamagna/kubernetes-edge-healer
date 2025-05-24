@@ -1,4 +1,4 @@
-"""Async wrapper around python‑serfclient for free‑CPU gossip."""
+"""Async wrapper around python-serfclient for free-CPU gossip."""
 import json
 import socket
 import struct
@@ -10,6 +10,7 @@ from typing import Dict
 
 from prometheus_client import Counter
 from serfclient import SerfClient
+import logging
 
 class SerfGossip:
     def __init__(self, node_name: str, addr: str, *, peer_update_counter: Counter):
@@ -45,5 +46,4 @@ class SerfGossip:
                 serf.event("free_cpu", json.dumps({"free_cpu": milli}), coalesce=True)
 
     def healthy_peers(self) -> Dict[str, int]:
-        # Simple copy; in practice add TTL filtering
         return dict(self.peers)
