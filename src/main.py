@@ -65,7 +65,11 @@ async def startup(**_):
 def configure(settings: kopf.OperatorSettings, **_):
     settings.scanning.namespaces = ["default"]
 
-
+@kopf.timer('', 'v1', 'nodes', interval=60.0)
+async def dump_peers(**_):
+    peers = GOSSIP.healthy_peers()
+    logger.info("Current peer CPU map: %r", peers)
+    
 # -----------------------------------------------------------------------------
 # Helper to detect control-plane outage
 # -----------------------------------------------------------------------------
@@ -90,7 +94,7 @@ async def is_offline(timeout: float = 1.0) -> bool:
 @kopf.on.delete("", "v1", "pods")
 async def on_pod_gone(meta, namespace, name, **kwargs):
     """
-    Called when a Pod we hosted disappears on THIS node.
+    Called when a Pod hosted disappears on THIS node.
     Only attempt restore if the control-plane is unreachable (i.e. offline).
     """
     logger.debug("POD GONE event fired for %s/%s; meta=%r", namespace, name, meta)
@@ -131,7 +135,7 @@ async def on_rs_change(body, **_):
 # graceful shutdown
 # -----------------------------------------------------------------------------
 async def _shutdown(loop):
-    logger.info("shutdown requested – cancelling tasks…")
+    logger.info("shutdown requested - cancelling tasks…")
     tasks = [t for t in asyncio.all_tasks(loop) if t is not asyncio.current_task(loop)]
     for task in tasks:
         task.cancel()
