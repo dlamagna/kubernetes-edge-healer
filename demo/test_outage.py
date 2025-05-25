@@ -30,7 +30,10 @@ TIMEFMT             = "%Y%m%d_%H%M%S"
 WAN_PLOT            = "wan_latency.png"
 NORMAL_PLOT         = "normal_latency.png"
 OVERLAY_PLOT        = "overlay_latency.png"
-METRIC_NAME         = "edge_restore_count"  # adjust if your metric is named differently
+METRIC_NAME         = "restore_latency_seconds_count"  
+WORKER_CONTAINER     = "serf-demo-worker2"           # the container/pod that is exec'd into
+INTERNAL_SCRIPT_PATH = "scripts/internal-pod-deletion.sh"
+DOCKER_DELETION_SCRIPT = "internal-pod-deletion.sh"
 
 # —— PARSE ARGS ——
 import argparse
@@ -117,6 +120,36 @@ def delete_pod_local(pod_name):
         log.error(f"Failed to delete pod via {runtime}: {e}")
         return False
 
+def delete_pod_internal_via_script():
+    """
+    Copies the internal deletion script into the worker container and executes it.
+    """
+    # 1) Copy the script into the container
+    try:
+        subprocess.check_call(
+            f"docker cp {INTERNAL_SCRIPT_PATH} {WORKER_CONTAINER}:{DOCKER_DELETION_SCRIPT}",
+            shell=True
+        )
+        subprocess.check_call(
+            f"docker exec {WORKER_CONTAINER} chmod +x {DOCKER_DELETION_SCRIPT}",
+            shell=True
+        )
+        log.info(f"Copied script to container at {DOCKER_DELETION_SCRIPT}")
+    except subprocess.CalledProcessError as e:
+        log.error(f"Failed to copy script into container: {e}")
+        return False
+
+    # 2) Execute it
+    cmd = f"docker exec {WORKER_CONTAINER} bash -c './{DOCKER_DELETION_SCRIPT}'"
+    log.info(f"Running internal pod-deletion script: {cmd}")
+    try:
+        subprocess.check_call(cmd, shell=True)
+        return True
+    except subprocess.CalledProcessError as e:
+        log.error(f"Internal pod-deletion script failed: {e}")
+        return False
+
+
 # —— METRICS ——
 def get_restore_count():
     log.debug(f"Fetching metrics from {METRICS_URL}")
@@ -182,12 +215,14 @@ def measure_latencies():
         # WAN outage experiment
         block_api()
         t0 = time.perf_counter()
-        deleted = delete_pod_local(pod)
+        deleted = delete_pod_internal_via_script()
         if not deleted:
             log.warning("Pod deletion failed under WAN outage, skipping iteration.")
             unblock_api()
             time.sleep(PAUSE_SECONDS)
             continue
+        else:
+            log.info("Pod deleted succesfully")
         time.sleep(OUTAGE_DURATION)
         unblock_api()
         # wait for restore
