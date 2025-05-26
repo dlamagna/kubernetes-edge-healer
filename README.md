@@ -22,7 +22,7 @@ Whenever the control-plane (API server) becomes unavailable, the agent gossips l
 ```mermaid
 flowchart TB
     subgraph Control_Plane["Control Plane (API Server)"]
-        style Control_Plane fill:#ff9999,stroke:#ff0000
+        style Control_Plane fill:#326ce5,stroke:#326ce5,color:#fff
         CP["API Server"]
     end
 
@@ -62,8 +62,8 @@ flowchart TB
 
     %% Layout hints
     classDef node fill:#f1f1f1,stroke:#333,stroke-width:2px
-    classDef pod fill:#326ce5,stroke:#333,stroke-width:1px,color:#fff
-    classDef control fill:#ff9999,stroke:#ff0000,stroke-width:2px
+    classDef pod fill:#fff,stroke:#333,stroke-width:1px
+    classDef control fill:#326ce5,stroke:#326ce5,color:#fff
     class Node1,Node2,Node3 node
     class Pod1,Pod2,Pod3 pod
     class Control_Plane control
