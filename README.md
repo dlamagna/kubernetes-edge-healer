@@ -61,9 +61,9 @@ flowchart TB
     S3 ---|"Gossip Protocol"| S1
 
     %% Layout hints
-    classDef node fill:#bbf,stroke:#333,stroke-width:2px
+    classDef node fill:#326ce5,stroke:#333,stroke-width:2px
     classDef pod stroke:#333,stroke-width:1px
-    classDef control fill:#326ce5,stroke:#326ce5,color:#fff
+    classDef control stroke:#326ce5,color:#fff
     class Node1,Node2,Node3 node
     class Pod1,Pod2,Pod3 pod
     class Control_Plane control
