@@ -74,8 +74,8 @@ flowchart TB
 flowchart TD
   subgraph Node_Setup
     A1["Deploy Edge-Healer DaemonSet"] --> A2["Each node gets one Pod with:"]
-    A2 --> A3["1. Edge-Healer Container (Python)"]
-    A2 --> A4["2. Serf Sidecar Container (Go binary)"]
+    A2 --> A3["1: Edge-Healer Container (Python)"]
+    A2 --> A4["2: Serf Sidecar Container (Go binary)"]
     A3 --> A5["Monitors local pods & handles bidding"]
     A4 --> A6["Handles node-to-node gossip"]
   end
@@ -90,9 +90,9 @@ flowchart TD
     direction TB
     B1["Control Plane Offline"] --> B2["Local pod deletion detected"]
     B2 --> B3["Edge-Healer Container:"]
-    B3 --> B4["1. Check CPU availability via Serf"]
-    B4 --> B5["2. Run bidding algorithm"]
-    B5 --> B6["3. Bind pod if won bid"]
+    B3 --> B4["1: Check CPU availability via Serf"]
+    B4 --> B5["2: Run bidding algorithm"]
+    B5 --> B6["3: Bind pod if won bid"]
   end
 
   subgraph Recovery_Metrics
