@@ -20,48 +20,51 @@ Whenever the control-plane (API server) becomes unavailable, the agent gossips l
 ### Node-Level Architecture
 
 ```mermaid
-flowchart LR
+flowchart TB
     subgraph Control_Plane["Control Plane (API Server)"]
         style Control_Plane fill:#ff9999,stroke:#ff0000
         CP["API Server"]
     end
 
     subgraph Node1["Node 1"]
-        EH1["Edge-Healer Pod"]
         subgraph Pod1["Edge-Healer Pod"]
             direction TB
-            C1["Edge-Healer Container\n(Python)"]
-            S1["Serf Sidecar\n(Go binary)"]
+            C1["Edge-Healer Container (Python)"]
+            S1["Serf Sidecar (Go binary)"]
         end
     end
 
     subgraph Node2["Node 2"]
-        EH2["Edge-Healer Pod"]
         subgraph Pod2["Edge-Healer Pod"]
             direction TB
-            C2["Edge-Healer Container\n(Python)"]
-            S2["Serf Sidecar\n(Go binary)"]
+            C2["Edge-Healer Container (Python)"]
+            S2["Serf Sidecar (Go binary)"]
         end
     end
 
     subgraph Node3["Node 3"]
-        EH3["Edge-Healer Pod"]
         subgraph Pod3["Edge-Healer Pod"]
             direction TB
-            C3["Edge-Healer Container\n(Python)"]
-            S3["Serf Sidecar\n(Go binary)"]
+            C3["Edge-Healer Container (Python)"]
+            S3["Serf Sidecar (Go binary)"]
         end
     end
 
     %% Control Plane connections (dashed to show it can be cut off)
-    CP -.->|"API Calls\n(can be blocked)"| EH1
-    CP -.->|"API Calls\n(can be blocked)"| EH2
-    CP -.->|"API Calls\n(can be blocked)"| EH3
+    CP -.->|"API Calls (can be blocked)"| Pod1
+    CP -.->|"API Calls (can be blocked)"| Pod2
+    CP -.->|"API Calls (can be blocked)"| Pod3
 
     %% Serf gossip network (solid lines to show it's always active)
     S1 ---|"Gossip Protocol"| S2
     S2 ---|"Gossip Protocol"| S3
     S3 ---|"Gossip Protocol"| S1
+
+    %% Layout hints
+    classDef node fill:#f9f,stroke:#333,stroke-width:2px
+    classDef pod fill:#bbf,stroke:#333,stroke-width:1px
+    class Node1,Node2,Node3 node
+    class Pod1,Pod2,Pod3 pod
 ```
 
 ### System Flow
