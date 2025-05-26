@@ -19,62 +19,62 @@ Whenever the control-plane (API server) becomes unavailable, the agent gossips l
 
 ```mermaid
 flowchart TD
-  subgraph Testbed_Setup
-    A1["Create KinD Cluster (3 nodes)"] --> A2["Deploy Serf sidecars on each node"]
-    A2 --> A3["Deploy edge-healer Scheduler (informers, BoltDB cache, Kopf)"]
-    A3 --> A4["Deploy busybox-spread Pods (app=busybox-spread)"]
-    A3 --> M1["Expose metrics on :8000 restore_latency_histogram, bind_conflicts"]
+  subgraph Node_Setup
+    A1["Deploy Edge-Healer DaemonSet"] --> A2["Each node gets one Pod with:"]
+    A2 --> A3["1. Edge-Healer Container (Python)"]
+    A2 --> A4["2. Serf Sidecar Container (Go binary)"]
+    A3 --> A5["Monitors local pods & handles bidding"]
+    A4 --> A6["Handles node-to-node gossip"]
   end
 
-  subgraph Gossip_Loop
+  subgraph Gossip_Network
     direction LR
-    G1["Serf Gossip Liveness & Free-CPU"] -->|broadcast| G2["Peers receive & update"]
+    G1["Serf Sidecars"] -->|gossip protocol| G2["Share CPU availability"]
     G2 -->|update| G1
   end
 
-  subgraph Outage_Deletion
+  subgraph Pod_Recovery
     direction TB
-    B1["Block API (iptables DROP)"] --> B2["Local pod deletion via crictl"]
-    B2 --> B3["edge-healer detects missing peer"]
-    B3 --> B4["Run bidding algorithm (pick healthiest node)"]
+    B1["Control Plane Offline"] --> B2["Local pod deletion detected"]
+    B2 --> B3["Edge-Healer Container:"]
+    B3 --> B4["1. Check CPU availability via Serf"]
+    B4 --> B5["2. Run bidding algorithm"]
+    B5 --> B6["3. Bind pod if won bid"]
   end
 
   subgraph Recovery_Metrics
     direction TB
-    B4 --> C1["Unblock API (remove DROP)"]
-    C1 --> C2["edge-healer restores pod (optimistic PATCH /bind)"]
-    C2 --> C3["Reconcile duplicates with cloud API"]
-    C2 --> M2{"Metrics polling"}
-    M2 -->|counter++| M3["Record restore latency"]
-    C2 --> L1["Dump healer & busybox logs"]
+    B6 --> C1["Control Plane Online"]
+    C1 --> C2["Reconcile duplicates"]
+    C2 --> C3["Record metrics:"]
+    C3 --> M1["Restore latency"]
+    C3 --> M2["Bind conflicts"]
+    C3 --> M3["Gossip updates"]
   end
 
-  A4 --> B1
-  M1 --> M2
-  G2 --> B2
-
+  A6 --> G1
+  G2 --> B4
+  B6 --> C1
 ```
 
 ## Repository Layout
 
 ```
-
 .
-├── cache.py                  # SQLite-based DesiredStateCache
-├── gossip.py                 # SerfGossip wrapper
-├── main.py                   # Kopf operator entrypoint
-├── metrics.py                # Prometheus metrics & HTTP server
-├── scheduler.py              # bid\_and\_bind logic
-├── requirements.txt
-├── Dockerfile                # container build for edge-healer
-├── config
-│   ├── daemonset.yaml        # DaemonSet + Serf sidecar
-│   └── service-metrics.yaml  # (optional) NodePort Service for metrics
-├── dev
-│   └── busybox-spread.yaml   # test workload with one replica/node
+├── src/
+│   ├── cache.py                  # SQLite-based DesiredStateCache
+│   ├── gossip.py                 # SerfGossip wrapper
+│   ├── main.py                   # Kopf operator entrypoint
+│   ├── metrics.py                # Prometheus metrics & HTTP server
+│   ├── scheduler.py              # bid_and_bind logic
+│   └── requirements.txt
+├── config/
+│   ├── daemonset.yaml           # DaemonSet + Serf sidecar
+│   └── service-metrics.yaml     # (optional) NodePort Service for metrics
+├── demo/
+│   └── busybox-spread.yaml      # test workload with one replica/node
 └── README.md
-
-````
+```
 
 ---
 
@@ -98,58 +98,77 @@ flowchart TD
 
 ```bash
 # From repo root
-docker build -t edge-healer:0.1 .
+docker build -t edge-healer:latest .
 
 # For KinD cluster "serf-demo"
-kind load docker-image edge-healer:0.1 --name serf-demo
-````
+kind load docker-image edge-healer:latest --name serf-demo
+```
 
 ---
 
 ## Deploy the DaemonSet
 
-1. **Ensure Serf sidecar** is in your DaemonSet (it uses HostNetwork) -- saved within `config/daemonset.yaml`
-2. **Apply** the YAML:
+1. Apply the DaemonSet YAML (includes Serf sidecar):
 
    ```bash
    kubectl apply -f config/daemonset.yaml
    kubectl -n kube-system rollout status ds/edge-healer
    ```
 
+   This will deploy:
+   - One edge-healer pod per node
+   - Each pod contains:
+     - Edge-healer container (Python application)
+     - Serf sidecar container (gossip protocol)
+
 ---
 
 ## Verify & Test Healing
 
-1. **Deploy test workload** (one Pod per node):
+1. Deploy test workload (one Pod per node):
 
    ```bash
-   kubectl apply -f dev/busybox-spread.yaml
+   # this is the demo purposed pod
+   kubectl apply -f demo/busybox-spread.yaml
    ```
 
-2. **Force-delete** a Pod:
+2. Force-delete a Pod (choose one method):
 
+   Method A: Online Deletion (when control plane is reachable)
    ```bash
    POD=$(kubectl get pod -l app=busybox-spread -o name | head -1)
    kubectl delete "$POD" --grace-period=0 --force
    ```
 
-3. **Watch healer logs** for the bind decision:
+   Method B: Offline Deletion (when control plane is unreachable)
+   ```bash
+   # First, block API server access
+   sudo iptables -A OUTPUT -p tcp --dport 6443 -j DROP
+   
+   # Then use the internal deletion script
+   ./scripts/internal_pod_deletion <pod-name> <namespace>
+   
+   # After testing, restore API access
+   sudo iptables -D OUTPUT -p tcp --dport 6443 -j DROP
+   ```
+
+3. Watch healer logs for the bind decision:
 
    ```bash
    kubectl -n kube-system logs ds/edge-healer -c healer --since=5s | grep "won bid"
    ```
 
-4. **Confirm** replacement Pod appears in < 0.3 s.
+4. Confirm replacement Pod appears in < 0.3 s.
 
 ---
 
 ## Metrics & Monitoring
 
-By default the agent exposes Prometheus metrics on port **8000** of each node (via `hostNetwork: true`). Key metrics:
+By default the agent exposes Prometheus metrics on port 8000 of each node (via `hostNetwork: true`). Key metrics:
 
-* `restore_latency_seconds`
-* `bind_conflicts_total`
-* `peer_updates_total`
+* `restore_latency_seconds` - Time taken to restore a pod
+* `bind_conflicts_total` - Number of failed binding attempts
+* `peer_updates_total` - Number of CPU availability updates received
 
 ### Direct curl
 
@@ -173,33 +192,33 @@ curl -s http://<NODE_IP>:30080/metrics \
 
 Unit and integration tests are provided in the `src/tests/` directory. To run the tests locally:
 
-1. **Create and activate a virtual environment** (if not already):
+1. Create and activate a virtual environment (if not already):
 
    ```bash
    python3 -m venv .venv
    source .venv/bin/activate
    ```
 
-2. **Install the package in development mode with test dependencies:**
+2. Install the package in development mode with test dependencies:
 
    ```bash
    pip install -e ".[test]"
    ```
 
-3. **Run all tests** (from the project root directory):
+3. Run all tests (from the project root directory):
 
    ```bash
    # Make sure you're in the project root directory (where setup.py is located)
    pytest src/tests/
    ```
 
-4. **Run with coverage:**
+4. Run with coverage:
 
    ```bash
    pytest --cov=src src/tests/
    ```
 
-5. **Run specific test categories:**
+5. Run specific test categories:
 
    ```bash
    pytest src/tests/unit/         # Run only unit tests
@@ -210,7 +229,7 @@ Tests use `pytest`, `pytest-asyncio`, and `pytest-mock` for mocking and async su
 
 ---
 
-## Advanced Topics
+## Advanced Topics and Future work
 
 * **Peer-TTL pruning**: drop Serf peers idle > 2 s
 * **Cold-boot replay**: restore missing Pods on startup if offline
