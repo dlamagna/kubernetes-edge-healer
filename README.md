@@ -198,8 +198,11 @@ kind load docker-image edge-healer:latest --name serf-demo
    # First, block API server access
    sudo iptables -A OUTPUT -p tcp --dport 6443 -j DROP
    
-   # Then use the internal deletion script
-   ./scripts/internal_pod_deletion <pod-name> <namespace>
+   # Copy the internal deletion script into the worker container and execute it
+   # For example with node name serf-demo-worker2
+   docker cp scripts/internal-pod-deletion.sh serf-demo-worker2:internal-pod-deletion.sh
+   docker exec serf-demo-worker2 chmod +x internal-pod-deletion.sh
+   docker exec serf-demo-worker2 bash -c './internal-pod-deletion.sh'
    
    # After testing, restore API access
    sudo iptables -D OUTPUT -p tcp --dport 6443 -j DROP
