@@ -145,7 +145,36 @@ flowchart TD
     sudo update-alternatives --set ip6tables  /usr/sbin/ip6tables-legacy
     ```
 
+## Installation 
+
+- _Kubernetes version compatibility_
+  Make sure your `kubectl` client and the Kubernetes server are within one minor version of each other.  
+  ```bash
+  kubectl version --short
+  # Example output:
+  # Client Version: v1.31.1
+  # Server Version: v1.31.1
+  ```
+
+If they differ by more than one minor release, downgrade the relevant kubernetes component and ensure the kind cluster is created on the correct version.
+
 ---
+
+- __Creating the cluster__
+Using the relevant client/server version from above
+```
+kind create cluster \
+  --name edge-healer \
+  --config config/kind-config-edge-healer.yaml \
+  --image kindest/node:v1.31.1
+ 
+```
+Once the nodes are ready, (`kubectl get nodes`), apply the edge healer manifests
+```bash
+kubectl apply -k config/
+
+```
+
 
 ## Build & Load Image
 
@@ -153,8 +182,8 @@ flowchart TD
 # From repo root
 docker build -t edge-healer:latest .
 
-# For KinD cluster "serf-demo"
-kind load docker-image edge-healer:latest --name serf-demo
+# For KinD cluster "edge-healer"
+kind load docker-image edge-healer:latest --name edge-healer
 ```
 
 ---
