@@ -32,6 +32,7 @@ spec:
       containers:
         - name: healer
           image: edge-healer:latest
+          imagePullPolicy: IfNotPresent   # the image is loaded with `kind load`, not pulled
           command: ["python", "-m", "kopf", "run", "-v", "main.py"]
           env:
             - name: NODE_NAME
