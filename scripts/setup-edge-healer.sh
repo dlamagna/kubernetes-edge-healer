@@ -5,7 +5,7 @@
 set -euo pipefail
 
 CLUSTER_NAME="serf-demo"
-IMAGE_NAME="edge-healer:0.1"
+IMAGE_NAME="edge-healer:latest"   # the tag config/daemonset.yaml uses
 KIND_CONFIG="
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
@@ -25,7 +25,7 @@ fi
 
 echo
 echo "2️⃣  Building Docker image '${IMAGE_NAME}'..."
-docker build -t "${IMAGE_NAME}" .
+docker build -t "${IMAGE_NAME}" src/
 
 echo
 echo "3️⃣  Loading image into KinD cluster..."
@@ -49,7 +49,7 @@ kubectl -n kube-system rollout status ds/edge-healer
 
 echo
 echo "8️⃣  Deploying busybox-spread test workload..."
-kubectl apply -f dev/busybox-spread.yaml
+kubectl apply -f demo/busybox-spread.yaml
 
 echo
 echo "✅  Setup complete!"
