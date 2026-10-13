@@ -1,0 +1,229 @@
+/*
+ * site/common/css/theme.css
+ * -----------------------
+ * Colour themes shared by every page: the design tokens for light (the default) and dark,
+ * plus the header theme toggle rendered by ../js/theme.js.
+ *
+ * The theme is chosen by a tiny inline script in each page's <head> (before first paint),
+ * which sets <html data-theme="light|dark"> from localStorage['edge-healer-theme'], or light
+ * when nothing is stored (the OS colour-scheme setting is ignored). Without JavaScript the page is light.
+ *
+ * Loaded by base.css (@import). Page stylesheets add their own role tokens in the same two blocks:
+ *   :root { ... }                  light
+ *   :root[data-theme="dark"] { ... } dark
+ */
+
+/* -------------------------------------------------------------------------
+ * Light: white surfaces, near-black ink, hairline borders, one navy accent
+ * ---------------------------------------------------------------------- */
+:root {
+  color-scheme: light;
+
+  /* Type: system faces only (no font CDN; pages must work offline) */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-heading: Charter, 'Bitstream Charter', 'Sitka Text', Cambria, 'Iowan Old Style', 'Palatino Linotype',
+                  Palatino, 'Book Antiqua', 'Noto Serif', 'DejaVu Serif', Georgia, serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+
+  /* Surfaces */
+  --bg-primary:    #f7f7f5;   /* page */
+  --bg-secondary:  #ffffff;   /* cards, panels, chart surface */
+  --bg-tertiary:   #efefeb;   /* hover, pressed, chips */
+  --bg-inset:      #f7f7f5;   /* wells inside a card */
+  --bg-input:      #ffffff;
+
+  /* Lines */
+  --border:        #e0dfd9;
+  --border-strong: #c4c3bb;
+  --border-active: #1f3a68;
+
+  /* Ink (on #fff: 17.0 / 8.2 / 5.0 : 1) */
+  --text-primary:   #1a1c21;
+  --text-secondary: #4b4f58;
+  --text-muted:     #6c707a;
+
+  /* Accent: deep navy (11.3:1 on #fff); links a touch brighter */
+  --accent:        #1f3a68;
+  --accent-hover:  #172c50;
+  --accent-text:   #1f4e8c;
+  --accent-soft:   #e9eef6;
+  --accent-tint:   rgba(31, 58, 104, 0.05);
+  --accent-tint-2: rgba(31, 58, 104, 0.10);
+  --on-accent:     #ffffff;
+  --focus-ring:    #1f4e8c;
+  --focus-glow:    rgba(31, 78, 140, 0.18);
+
+  /* Status colours (text-safe on #fff, >= 4.5:1) */
+  --green:  #1d7a3e;
+  --orange: #a95a00;
+  --red:    #b42318;
+  --purple: #5b3a9e;
+  --teal:   #0f766e;
+  --green-soft:  #e8f3ec;
+  --orange-soft: #fbf1e4;
+  --red-soft:    #fbeae8;
+
+  /* Overlays for nested panels, hovers */
+  --overlay-1: rgba(26, 28, 33, 0.035);
+  --overlay-2: rgba(26, 28, 33, 0.06);
+  --shadow-1:  0 1px 2px rgba(26, 28, 33, 0.05);
+  --shadow-2:  0 6px 20px rgba(26, 28, 33, 0.12);
+
+  /* Radii: tighter on paper */
+  --radius-card: 6px;
+  --radius-md:   4px;
+
+  /* Brand header (docs/) */
+  --header-bg-brand:       #ffffff;
+  --header-fg:             #1a1c21;
+  --header-border:         #e0dfd9;
+  --header-link-fg:        #4b4f58;
+  --header-link-bg:        transparent;
+  --header-link-bg-hover:  #efefeb;
+  --header-link-fg-active: #1f3a68;
+  --header-link-bg-active: #e9eef6;
+
+  /* Header link pills (common/js/nav.js) */
+  --nav-bg:            transparent;
+  --nav-border:        #e0dfd9;
+  --nav-fg:            #4b4f58;
+  --nav-active-bg:     #e9eef6;
+  --nav-active-border: #c3cfe2;
+  --nav-active-fg:     #1f3a68;
+
+  /* Theme toggle */
+  --toggle-bg:        #ffffff;
+  --toggle-border:    #e0dfd9;
+  --toggle-fg:        #4b4f58;
+  --toggle-active-bg: #efefeb;
+  --toggle-active-fg: #1a1c21;
+
+  /* Tooltips */
+  --tooltip-bg:     #ffffff;
+  --tooltip-border: #c4c3bb;
+  --tooltip-shadow: 0 6px 20px rgba(26, 28, 33, 0.14);
+}
+
+/* -------------------------------------------------------------------------
+ * Dark: the original slate / blue look
+ * ---------------------------------------------------------------------- */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --font-heading: var(--font-sans);
+
+  --bg-primary:    #0f172a;
+  --bg-secondary:  #1e293b;
+  --bg-tertiary:   #334155;
+  --bg-inset:      #0f172a;
+  --bg-input:      #0f172a;
+
+  --border:        #334155;
+  --border-strong: #475569;
+  --border-active: #3b82f6;
+
+  --text-primary:   #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-muted:     #64748b;
+
+  --accent:        #3b82f6;
+  --accent-hover:  #2563eb;
+  --accent-text:   #3b82f6;
+  --accent-soft:   rgba(59, 130, 246, 0.15);
+  --accent-tint:   rgba(37, 99, 235, 0.10);
+  --accent-tint-2: rgba(37, 99, 235, 0.20);
+  --on-accent:     #ffffff;
+  --focus-ring:    #93c5fd;
+  --focus-glow:    rgba(37, 99, 235, 0.20);
+
+  --green:  #22c55e;
+  --orange: #f59e0b;
+  --red:    #ef4444;
+  --purple: #a855f7;
+  --teal:   #14b8a6;
+  --green-soft:  rgba(34, 197, 94, 0.15);
+  --orange-soft: rgba(245, 158, 11, 0.15);
+  --red-soft:    rgba(239, 68, 68, 0.15);
+
+  --overlay-1: rgba(0, 0, 0, 0.2);
+  --overlay-2: rgba(0, 0, 0, 0.3);
+  --shadow-1:  none;
+  --shadow-2:  0 4px 16px rgba(0, 0, 0, 0.35);
+
+  --radius-card: 12px;
+  --radius-md:   8px;
+
+  --header-bg-brand:       linear-gradient(135deg, #1e3a8a 0%, #7c3aed 100%);
+  --header-fg:             #ffffff;
+  --header-border:         transparent;
+  --header-link-fg:        #f1f5f9;
+  --header-link-bg:        rgba(255, 255, 255, 0.10);
+  --header-link-bg-hover:  rgba(255, 255, 255, 0.20);
+  --header-link-fg-active: #ffffff;
+  --header-link-bg-active: rgba(255, 255, 255, 0.24);
+
+  --nav-bg:            #334155;
+  --nav-border:        #334155;
+  --nav-fg:            #94a3b8;
+  --nav-active-bg:     #3b82f6;
+  --nav-active-border: #3b82f6;
+  --nav-active-fg:     #ffffff;
+
+  --toggle-bg:        rgba(255, 255, 255, 0.06);
+  --toggle-border:    rgba(255, 255, 255, 0.18);
+  --toggle-fg:        #cbd5e1;
+  --toggle-active-bg: rgba(255, 255, 255, 0.20);
+  --toggle-active-fg: #ffffff;
+
+  --tooltip-bg:     #0b1222;
+  --tooltip-border: #475569;
+  --tooltip-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+/* Headings take the theme's heading face (a serif on light, the sans on dark). */
+h1, h2, h3, h4 { font-family: var(--font-heading); }
+
+/* -------------------------------------------------------------------------
+ * Theme toggle (rendered into [data-theme-toggle] by common/js/theme.js)
+ * ---------------------------------------------------------------------- */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  gap: 2px;
+  min-width: 132px;  /* the placeholder reserves the toggle's width (Light + Dark): no shift when it mounts */
+  min-height: 32px;
+  padding: 2px;
+  border: 1px solid var(--toggle-border);
+  border-radius: 7px;
+  background: var(--toggle-bg);
+  font-family: var(--font-sans);
+}
+.theme-toggle button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  padding: 5px 8px;
+  min-height: 26px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--toggle-fg);
+  font: 500 12.5px/1 var(--font-sans);
+  letter-spacing: 0;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.theme-toggle button:hover { color: var(--toggle-active-fg); }
+.theme-toggle button[aria-checked="true"] {
+  background: var(--toggle-active-bg);
+  color: var(--toggle-active-fg);
+}
+.theme-toggle button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.theme-toggle svg { width: 14px; height: 14px; flex: none; }
+@media (max-width: 700px) {
+  .theme-toggle { min-width: 64px; }
+  .theme-toggle__label { display: none; }
+  .theme-toggle button { padding: 5px 7px; }
+}

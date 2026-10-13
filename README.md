@@ -3,6 +3,8 @@
 A lightweight self-healing DaemonSet agent for Kubernetes edge clusters.  
 Whenever the control-plane (API server) becomes unavailable, the agent gossips liveness & free-capacity among peers, caches desired ReplicaSet specs locally, and optimistically re-binds missing Pods on the healthiest survivor node. When the WAN link returns, it reconciles duplicates to prevent split-brain.
 
+**Website:** <https://dlamagna.github.io/kubernetes-edge-healer/>: a write-up, the paper and poster, and an interactive demo of the experiment.
+
 ---
 
 ## Features
@@ -311,6 +313,19 @@ Unit and integration tests are provided in the `src/tests/` directory. To run th
    ```
 
 Tests use `pytest`, `pytest-asyncio`, and `pytest-mock` for mocking and async support. Fixtures and mocks are provided in `src/tests/conftest.py`.
+
+---
+
+## Website
+
+The project website lives in `site/` (plain HTML, CSS and JavaScript, no build tools) and is deployed to GitHub Pages by `.github/workflows/pages.yml` on every push to `main` that touches it. To preview it locally:
+
+```bash
+scripts/build-site.sh                      # site/ + the paper and poster PDFs -> dist/site
+python3 -m http.server -d dist/site 8080   # then open http://localhost:8080/
+```
+
+One-off setting for the repository owner: *Settings > Pages > Build and deployment > Source:* **GitHub Actions**.
 
 ---
 
