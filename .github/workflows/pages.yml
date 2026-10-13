@@ -1,0 +1,49 @@
+name: Deploy the website to GitHub Pages
+
+# Publishes site/ (plus the paper and poster PDFs) with scripts/build-site.sh.
+# One-off setting, made by the repository owner: Settings > Pages > Build and deployment > Source:
+# "GitHub Actions". The site is then served at https://<owner>.github.io/<repo>/.
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "site/**"
+      - "scripts/build-site.sh"
+      - "*.pdf"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Let a running deployment finish, but skip the ones queued in between and keep only the latest.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build dist/site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: scripts/build-site.sh
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/site
+
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

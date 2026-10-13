@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>When the WAN drops: self-healing Kubernetes at the edge</title>
+  <meta name="description" content="A plain-words write-up of edge-healer: a gossip-based agent that lets Kubernetes edge nodes recreate lost Pods while the control plane is unreachable.">
+  <link rel="canonical" href="https://dlamagna.github.io/kubernetes-edge-healer/docs/blog/">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BlogPosting",
+    "headline": "When the WAN drops: self-healing Kubernetes at the edge",
+    "url": "https://dlamagna.github.io/kubernetes-edge-healer/docs/blog/",
+    "author": [{"@type": "Person", "name": "Davide Lamagna"}],
+    "about": {
+      "@type": "ScholarlyArticle",
+      "name": "Edge-Healer: Decentralising Kubernetes with Edge Self-Healing",
+      "datePublished": "2025"
+    }
+  }
+  </script>
+  <script>
+    /* Theme before first paint: the saved choice, else light (see common/js/theme.js). */
+    (function () {
+      var t;
+      try { t = localStorage.getItem('edge-healer-theme'); } catch (e) {}
+      if (t !== 'light' && t !== 'dark') t = 'light';
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+  <link rel="stylesheet" href="../../common/css/base.css">
+  <link rel="stylesheet" href="../../common/css/site.css">
+  <link rel="stylesheet" href="../css/docs.css">
+  <script type="module" src="../../common/js/theme.js"></script>
+  <script type="module" src="../../common/js/nav.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="site-header">
+  <a class="brand" href="../../">edge-healer</a>
+  <div class="header-end">
+    <nav data-site-nav="docs-blog" aria-label="Site"></nav>
+    <div class="theme-toggle" data-theme-toggle></div>
+  </div>
+</header>
+
+<main id="main" class="doc post" tabindex="-1">
+
+  <header class="doc-hero post-hero" aria-labelledby="pageTitle">
+    <p class="eyebrow">Write-up · UPC · FIB</p>
+    <h1 id="pageTitle">When the WAN drops: self-healing Kubernetes at the edge</h1>
+    <p class="doc-lede">Kubernetes needs its control plane to replace a lost Pod. edge-healer lets the nodes do it
+      themselves when the control plane is out of reach.</p>
+    <p class="authors">Davide Lamagna</p>
+    <p class="post-notice">This is an informal write-up of the project report <em>Edge-Healer: Decentralising
+      Kubernetes with Edge Self-Healing</em>. For the background, related work and references, please refer to
+      <a data-site-href="paper">the paper</a>.</p>
+    <div class="cta-row">
+      <a class="cta cta--primary" data-site-href="paper" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg>
+        Read the paper (PDF)
+      </a>
+      <a class="cta" data-site-href="repo">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/></svg>
+        View the code
+      </a>
+      <a class="cta" href="../../#demo">Try the demo</a>
+    </div>
+    <nav class="doc-toc" aria-label="On this page">
+      <a href="#problem">The problem</a>
+      <a href="#how">How it works</a>
+      <a href="#gossip">Why gossip</a>
+      <a href="#kubeedge">vs KubeEdge</a>
+      <a href="#experiment">The experiment</a>
+      <a href="#next">Next steps</a>
+      <a href="#reproduce">Reproduce it</a>
+      <a href="#cite">Cite</a>
+    </nav>
+  </header>
+
+  <aside class="tldr" aria-label="TL;DR">
+    <p class="tldr-title">TL;DR</p>
+    <ul>
+      <li>In Kubernetes, only the control plane can replace a lost Pod. If an edge site loses its WAN link, lost
+        Pods stay lost until the link comes back.</li>
+      <li>edge-healer runs a small agent on every node. The agents gossip their free CPU, and when a Pod is lost
+        while the API server is unreachable, the node with the most spare CPU recreates it locally.</li>
+      <li>When the link returns, the local changes are pushed back and duplicates are removed. The prototype
+        restored Pods in a simulated four-node cluster with the API server cut off.</li>
+    </ul>
+  </aside>
+
+  <section id="problem" class="doc-section" aria-labelledby="problemTitle">
+    <h2 id="problemTitle">The freeze-brain problem</h2>
+    <p>Kubernetes splits a cluster into a control plane and worker nodes. The control plane makes every global
+      decision. The <strong>API server</strong> is the single front door to the cluster's state, which lives in
+      <strong>etcd</strong>. The <strong>controller manager</strong> runs the loops that drive the cluster towards
+      its desired state, such as "three replicas of this Pod". The <strong>scheduler</strong> decides which node
+      each new Pod goes to. The workers just run what they are told.</p>
+    <p>This design is deliberate. It gives the whole cluster one consistent view, and in a data centre it works
+      well. But it trades availability for consistency, and the trade becomes visible at the edge.</p>
+    <p>Picture a factory. Gateways and on-site devices run as Kubernetes nodes, managed from a cloud region over
+      a thin WAN link that can drop for minutes at a time. During an outage, a Pod that crashes on a gateway is
+      not replaced. Kubernetes never restarts a terminated Pod in place: a controller has to create a new one and
+      the scheduler has to bind it to a node, and both sit on the far side of the broken link. The nodes are
+      healthy but frozen, waiting for a brain they cannot reach. For a production line that cannot tolerate gaps
+      of more than a few seconds, that is a real problem.</p>
+    <div class="callout">
+      <p><strong>The goal:</strong> give every edge node just enough of a brain to detect a failure, agree with
+        its peers on who should host the replacement, and start it locally, without the central control plane.</p>
+    </div>
+  </section>
+
+  <section id="how" class="doc-section" aria-labelledby="howTitle">
+    <h2 id="howTitle">How edge-healer works</h2>
+    <p>edge-healer is deployed as a <strong>DaemonSet</strong>, so every worker runs one copy. Each copy is a Pod
+      with two containers:</p>
+    <ul>
+      <li>a <strong>Serf sidecar</strong> (a Go binary) that keeps a gossip ring with the other nodes, and</li>
+      <li>the <strong>edge-healer agent</strong>, a Python operator built on Kopf that watches Pods and
+        ReplicaSets and holds the bidding logic.</li>
+    </ul>
+
+    <figure class="post-figure">
+      <svg class="arch" viewBox="0 0 640 320" role="img" aria-labelledby="archTitle archDesc">
+        <title id="archTitle">edge-healer architecture</title>
+        <desc id="archDesc">A control plane at the top connects to three worker nodes through API calls that can be
+          blocked. Each worker runs an edge-healer Pod with a Python agent and a Serf sidecar; the sidecars gossip
+          with each other in a ring.</desc>
+        <line class="arch-api" x1="320" y1="64" x2="110" y2="140"/>
+        <line class="arch-api" x1="320" y1="64" x2="320" y2="140"/>
+        <line class="arch-api" x1="320" y1="64" x2="530" y2="140"/>
+        <text class="arch-note" x="432" y="90">API calls (can be blocked)</text>
+        <rect class="arch-cp" x="220" y="12" width="200" height="52" rx="8"/>
+        <text class="arch-title" x="320" y="34">Control plane</text>
+        <text class="arch-sub" x="320" y="52">API server · scheduler · controllers</text>
+        <line class="arch-gossip" x1="190" y1="214" x2="240" y2="214"/>
+        <line class="arch-gossip" x1="400" y1="214" x2="450" y2="214"/>
+        <path class="arch-gossip" d="M110 270 Q 320 316 530 270"/>
+        <text class="arch-gossip-label" x="320" y="314">Serf gossip: liveness and free CPU</text>
+        <g>
+          <rect class="arch-node" x="30" y="140" width="160" height="130" rx="8"/>
+          <text class="arch-title" x="110" y="162">Node 1</text>
+          <rect class="arch-pod" x="42" y="174" width="136" height="80" rx="6"/>
+          <text class="arch-sub" x="110" y="190">edge-healer Pod</text>
+          <rect class="arch-chip" x="50" y="200" width="120" height="20" rx="4"/><text class="arch-chip-t" x="110" y="214">agent (Python, Kopf)</text>
+          <rect class="arch-chip arch-chip--serf" x="50" y="226" width="120" height="20" rx="4"/><text class="arch-chip-t" x="110" y="240">Serf sidecar (Go)</text>
+        </g>
+        <g>
+          <rect class="arch-node" x="240" y="140" width="160" height="130" rx="8"/>
+          <text class="arch-title" x="320" y="162">Node 2</text>
+          <rect class="arch-pod" x="252" y="174" width="136" height="80" rx="6"/>
+          <text class="arch-sub" x="320" y="190">edge-healer Pod</text>
+          <rect class="arch-chip" x="260" y="200" width="120" height="20" rx="4"/><text class="arch-chip-t" x="320" y="214">agent (Python, Kopf)</text>
+          <rect class="arch-chip arch-chip--serf" x="260" y="226" width="120" height="20" rx="4"/><text class="arch-chip-t" x="320" y="240">Serf sidecar (Go)</text>
+        </g>
+        <g>
+          <rect class="arch-node" x="450" y="140" width="160" height="130" rx="8"/>
+          <text class="arch-title" x="530" y="162">Node 3</text>
+          <rect class="arch-pod" x="462" y="174" width="136" height="80" rx="6"/>
+          <text class="arch-sub" x="530" y="190">edge-healer Pod</text>
+          <rect class="arch-chip" x="470" y="200" width="120" height="20" rx="4"/><text class="arch-chip-t" x="530" y="214">agent (Python, Kopf)</text>
+          <rect class="arch-chip arch-chip--serf" x="470" y="226" width="120" height="20" rx="4"/><text class="arch-chip-t" x="530" y="240">Serf sidecar (Go)</text>
+        </g>
+      </svg>
+      <figcaption>Every worker runs an edge-healer Pod. The API calls to the control plane can be cut; the gossip
+        ring between the Serf sidecars keeps working.</figcaption>
+    </figure>
+
+    <p>When a Pod disappears, this is what happens:</p>
+    <ol class="steps">
+      <li><h3>Check the control plane</h3>
+        <p>The agent first asks the API server, with a one-second timeout. If the control plane answers, the agent
+          does nothing and Kubernetes handles the loss as usual.</p></li>
+      <li><h3>Look at the gossip</h3>
+        <p>If the API server is unreachable, the agent looks at its map of free CPU, which the Serf sidecars keep up
+          to date by gossiping each node's spare capacity.</p></li>
+      <li><h3>Bid</h3>
+        <p>Each agent compares its own free CPU with its peers'. If no peer has strictly more, it wins the bid.</p></li>
+      <li><h3>Bind optimistically</h3>
+        <p>The winner binds the Pod to its own node, recreating it on the spot without waiting for the scheduler or
+          the ReplicaSet controller.</p></li>
+      <li><h3>Reconcile when the WAN returns</h3>
+        <p>Locally created objects are pushed back to the API server. If two nodes recreated the same Pod, the
+          second bind is rejected and the duplicate is removed, so the cluster does not end up in a split-brain
+          state.</p></li>
+    </ol>
+    <p>The bidding rule is short enough to show in full. This is the core of <a data-site-href="repo:src/scheduler.py"><code>src/scheduler.py</code></a>:</p>
+<pre class="code"><code>peers = gossip.healthy_peers()          <span class="c"># {node: free CPU}, from Serf</span>
+my_cpu = peers.get(gossip.node, 0)
+if any(cpu &gt; my_cpu for cpu in peers.values()):
+    return                              <span class="c"># lost bid: someone has more room</span>
+<span class="c"># won bid: bind the Pod to this node</span>
+await api.create_namespaced_pod_binding(name, namespace, target)</code></pre>
+    <p>Two other pieces support it. A small <strong>SQLite cache</strong> keeps the desired ReplicaSet specs on
+      each node, so the agent still knows what should be running after a reboot during an outage. And each agent
+      exports <strong>Prometheus metrics</strong>: <code>restore_latency_seconds</code>,
+      <code>bind_conflicts_total</code> and <code>peer_updates_total</code>.</p>
+    <p class="muted">You can watch the whole sequence, including a tie that produces a duplicate, in the
+      <a href="../../#demo">interactive demo</a>.</p>
+  </section>
+
+  <section id="gossip" class="doc-section" aria-labelledby="gossipTitle">
+    <h2 id="gossipTitle">Why gossip</h2>
+    <p>The agents need to share their state without a central coordinator, which is exactly what gossip protocols
+      are for. Each node regularly sends its state to a few randomly chosen peers, and those pass it on. Updates
+      spread like an epidemic.</p>
+    <p>Serf, which edge-healer uses, is built on SWIM (Das, Gupta and Motivala, 2002). SWIM detects failures by
+      probing random peers and asking others to confirm when a probe fails. It piggybacks membership updates on
+      those probe messages. Two properties make it a good fit for edge clusters. An update reaches every node in
+      O(log&nbsp;n) rounds with high probability. And each node talks to a constant number of peers per round, so
+      the total load grows only linearly with the cluster and there are no broadcast storms.</p>
+    <p>edge-healer uses Serf less for failure detection than for sharing resources: the payload that matters is
+      each node's free CPU, which is what the bidding runs on.</p>
+  </section>
+
+  <section id="kubeedge" class="doc-section" aria-labelledby="kubeedgeTitle">
+    <h2 id="kubeedgeTitle">How it differs from KubeEdge</h2>
+    <p>KubeEdge is the industry-standard way to run Kubernetes at the edge, and it already keeps workloads running
+      while the cloud link is down. The difference is in what happens when something new has to be created.</p>
+    <div class="table-wrap">
+      <table class="doc-table wrap">
+        <thead><tr><th scope="col"></th><th scope="col">KubeEdge</th><th scope="col">edge-healer</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">Architecture</th><td>Hierarchical: EdgeCore on each node, CloudCore in the cloud as the single source of truth</td><td>Flat: every node has an equal role in recovery once the WAN is cut</td></tr>
+          <tr><th scope="row">During an outage</th><td>Cached Pods keep running; anything that needs a new API object (a replacement Pod, scaling) waits for the link</td><td>Agents bid, and the winner recreates the lost Pod locally</td></tr>
+          <tr><th scope="row">Recovery time</th><td>A lost Pod can stay down for minutes or hours, until the edge reconnects</td><td>Targeted at under a second after the loss is detected</td></tr>
+          <tr><th scope="row">Scaling</th><td>Recovery load lands on CloudCore</td><td>Every new node adds scheduling capacity as well as compute</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Other projects tackle neighbouring problems. KubeFed manages fleets of clusters from a central federation
+      plane, Liqo lets workloads roam between clusters, and Medik8s and Active-Monitor focus on node remediation
+      and health checks. None of them coordinates replica rescheduling once the WAN is gone, which is the gap
+      edge-healer aims at.</p>
+  </section>
+
+  <section id="experiment" class="doc-section" aria-labelledby="experimentTitle">
+    <h2 id="experimentTitle">The experiment</h2>
+    <p>The prototype ran on a simulated edge cluster: a four-node KinD (Kubernetes in Docker) cluster, with a control
+      plane and three workers, each running the edge-healer DaemonSet. A small test Deployment,
+      <code>busybox-spread</code>, put one replica on each worker. Each run followed the same workflow:</p>
+    <ol class="steps">
+      <li><h3>Block the API</h3><p>An <code>iptables</code> rule drops all traffic to the API server on port 6443,
+        simulating the WAN outage.</p></li>
+      <li><h3>Delete a Pod locally</h3><p>Inside a worker, <code>crictl</code> stops and removes the busybox
+        containers, so the Pod disappears without the control plane being involved.</p></li>
+      <li><h3>Gossip and bid</h3><p>The sidecars keep exchanging free CPU; the agents detect the loss and run the
+        bidding.</p></li>
+      <li><h3>Rebind and measure</h3><p>The winner rebinds the Pod. Prometheus collects the restore latency, bind
+        conflicts and gossip updates.</p></li>
+    </ol>
+    <p>In this first validation, edge-healer restored the Pods while the control plane was cut off. The logs showed
+      each stage in order: the loss was detected, the agents gossiped and one of them won the bid and rebound the
+      Pod. Once the API server was reachable again, the state was reconciled. The prototype also kept gossip traffic
+      low on the three-worker ring.</p>
+    <p>The evaluation shows that the approach works, but it is not yet a full benchmark. The design aims to restore
+      a Pod in under a second, against roughly two seconds for the standard path. Measuring that carefully, at
+      larger scale, is part of the next steps.</p>
+  </section>
+
+  <section id="next" class="doc-section" aria-labelledby="nextTitle">
+    <h2 id="nextTitle">Limitations and next steps</h2>
+    <ul>
+      <li><strong>Rewrite the agent in Go.</strong> Go is the native language of Kubernetes. It would integrate
+        better with the API machinery and cut the runtime overhead of the Python prototype.</li>
+      <li><strong>Run on IoT-scale nodes.</strong> The goal is workers with less than 30&nbsp;MB of RAM, which means
+        a much smaller footprint.</li>
+      <li><strong>Scale up.</strong> Clusters with dozens or hundreds of nodes would test how well the gossip and
+        the optimistic rebinding hold up under CPU stress.</li>
+      <li><strong>Stress-test WAN partitions.</strong> How long can the control plane stay unreachable before the
+        nodes' decisions drift too far from the global state?</li>
+      <li><strong>Compare with KubeEdge's offline mode</strong> on latency, correctness and resource use.</li>
+      <li><strong>Package it as a Helm chart</strong> to make it easier to adopt and reproduce.</li>
+    </ul>
+  </section>
+
+  <section id="reproduce" class="doc-section" aria-labelledby="reproduceTitle">
+    <h2 id="reproduceTitle">Reproduce the experiment</h2>
+    <p>You need <code>docker</code>, <code>kind</code> and <code>kubectl</code> (client and server at most one minor
+      version apart). From the root of <a data-site-href="repo">the repository</a>:</p>
+<pre class="code"><code><span class="c"># 1. A KinD cluster: one control plane, three workers</span>
+cat &lt;&lt;EOF | kind create cluster --name serf-demo --config=-
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+  - role: worker
+  - role: worker
+  - role: worker
+EOF
+
+<span class="c"># 2. Build the agent and load it into the cluster</span>
+docker build -t edge-healer:latest src/
+kind load docker-image edge-healer:latest --name serf-demo
+
+<span class="c"># 3. Deploy the DaemonSet (agent + Serf sidecar on every node) and the test workload</span>
+kubectl apply -f config/rbac.yaml -f config/daemonset.yaml
+kubectl -n kube-system rollout status ds/edge-healer
+kubectl apply -f demo/busybox-spread.yaml</code></pre>
+    <p>Then cut the API server off and remove a Pod from inside a worker:</p>
+<pre class="code"><code><span class="c"># block the API server</span>
+sudo iptables -A OUTPUT -p tcp --dport 6443 -j DROP
+
+<span class="c"># remove a busybox-spread Pod from inside a worker node</span>
+docker cp scripts/internal-pod-deletion.sh serf-demo-worker2:internal-pod-deletion.sh
+docker exec serf-demo-worker2 bash -c 'chmod +x internal-pod-deletion.sh &amp;&amp; ./internal-pod-deletion.sh'
+
+<span class="c"># watch the bidding</span>
+kubectl -n kube-system logs ds/edge-healer -c healer --since=5s | grep "won bid"
+
+<span class="c"># restore the API server</span>
+sudo iptables -D OUTPUT -p tcp --dport 6443 -j DROP</code></pre>
+    <p>Each agent serves its metrics on port 8000 of its node:</p>
+<pre class="code"><code>curl -s http://&lt;NODE_IP&gt;:8000/metrics | grep -E 'restore_latency|bind_conflicts|peer_updates'</code></pre>
+    <p class="muted small">The <a data-site-href="repo">README</a> has more detail, including the online deletion
+      path and the unit and integration tests.</p>
+  </section>
+
+  <section id="cite" class="doc-section" aria-labelledby="citeTitle">
+    <h2 id="citeTitle">Citation</h2>
+    <p>If this is useful for your work, please cite it as:</p>
+    <p class="post-ref">D. Lamagna. Edge-Healer: Decentralising Kubernetes with Edge Self-Healing. Universitat
+      Politècnica de Catalunya, 2025. <a data-site-href="repo">github.com/dlamagna/kubernetes-edge-healer</a>.</p>
+    <div data-site-cite></div>
+    <details class="post-abstract" id="abstract">
+      <summary>The paper's abstract</summary>
+      <blockquote class="abstract">
+        <p>Traditional Kubernetes relies on a highly consistent, centrally hosted control-plane, an assumption that breaks down in thin-WAN or intermittently connected edge deployments. When the API-server is unreachable, lost Pods remain unreplaced and production lines stall. We present edge-healer, a lightweight self-healing framework that decentralises recovery logic by running a Serf-backed gossip sidecar and a Python (soon Go) bidding agent as a DaemonSet on every worker node. Nodes periodically exchange free-CPU budgets and, upon detecting a missing Pod, issue a bind decision to recreate it on the best-suited peer—without waiting for the control plane’s scheduler or ReplicaSet controllers. The prototype is publicly available and shows that modest cluster-side changes can help achieve true edge autonomy while remaining API-compatible with upstream Kubernetes.</p>
+      </blockquote>
+    </details>
+  </section>
+
+</main>
+
+<footer data-site-footer></footer>
+</body>
+</html>

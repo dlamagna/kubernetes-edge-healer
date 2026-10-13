@@ -11,3 +11,6 @@ __pycache__/
 
 debug/*
 !debug/.gitkeep
+
+# website build (scripts/build-site.sh)
+dist/

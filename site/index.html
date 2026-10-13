@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>edge-healer · Decentralised self-healing for Kubernetes at the edge</title>
+  <meta name="description" content="edge-healer: a gossip-based self-healing agent that lets Kubernetes edge nodes recreate lost Pods while the control plane is unreachable. Paper, poster, code and an interactive demo.">
+  <link rel="canonical" href="https://dlamagna.github.io/kubernetes-edge-healer/">
+  <script>
+    /* Theme before first paint: the saved choice, else light (see common/js/theme.js). */
+    (function () {
+      var t;
+      try { t = localStorage.getItem('edge-healer-theme'); } catch (e) {}
+      if (t !== 'light' && t !== 'dark') t = 'light';
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+  <link rel="stylesheet" href="common/css/base.css">
+  <link rel="stylesheet" href="common/css/site.css">
+  <link rel="stylesheet" href="demo/css/demo.css">
+  <script type="module" src="common/js/theme.js"></script>
+  <script type="module" src="common/js/nav.js"></script>
+  <script type="module" src="demo/js/demo.js"></script>
+  <style>
+    :root { --footer-width: 1120px; } /* align the shared footer with .container */
+    html { scroll-behavior: smooth; }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+    .header { flex-wrap: wrap; gap: 10px 16px; }
+    .header h1 {
+      font-family: var(--font-heading);
+      font-size: 1.3rem;
+      letter-spacing: 0.1px;
+    }
+    .header-end { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+    .paper-hero .eyebrow {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+    }
+    .paper-hero h2 {
+      font-size: clamp(1.4rem, 3vw, 2rem);
+      line-height: 1.22;
+      font-weight: 600;
+      margin: 6px 0 8px;
+      max-width: 30em;
+      text-wrap: balance;
+    }
+    .paper-hero .authors { color: var(--text-secondary); font-size: 0.95rem; }
+    .paper-hero .summary {
+      color: var(--text-secondary);
+      font-size: 0.98rem;
+      max-width: 46em;
+      margin: 12px 0 0;
+    }
+    .paper-hero .summary + .summary { margin-top: 10px; }
+    .paper-hero--head { padding-bottom: 0; margin-bottom: 28px; }
+    /* Title and author on the left, the summary on the right; stacked on narrow screens */
+    .home-top { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 20px 44px; align-items: start; }
+    .home-top .summary { font-size: 0.93rem; }
+    .home-top__title .cta-row { margin-top: 22px; gap: 10px; }
+    .home-top__title .cta { padding: 8px 14px; font-size: 0.9rem; white-space: nowrap; }
+    .home-top__intro .summary:first-child { margin-top: 0; }
+    @media (max-width: 1080px) { .home-top { grid-template-columns: minmax(0, 1fr); } .home-top__intro .summary:first-child { margin-top: 4px; } }
+    .container { max-width: 1120px; padding: 40px 24px 56px; }
+    .page-title {
+      font-size: 1.6rem;
+      font-weight: 600;
+      margin-bottom: 4px;
+      scroll-margin-top: 16px;
+    }
+    .page-subtitle {
+      color: var(--text-secondary);
+      font-size: 0.98rem;
+      max-width: 48em;
+      margin-bottom: 16px;
+    }
+    .benchmark-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 16px;
+      margin-top: 20px;
+    }
+    .benchmark-card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-card);
+      box-shadow: var(--shadow-1);
+      padding: 22px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      transition: border-color 0.15s;
+    }
+    .benchmark-card:hover {
+      border-color: var(--border-active);
+    }
+    .benchmark-card h2 {
+      font-size: 1.15rem;
+      font-weight: 600;
+    }
+    .benchmark-card p {
+      color: var(--text-secondary);
+      font-size: 0.92rem;
+      flex: 1;
+    }
+    .benchmark-card a.open-btn {
+      margin-top: 8px;
+      display: inline-block;
+      align-self: flex-start;
+      padding: 8px 16px;
+      background: var(--accent);
+      color: var(--on-accent);
+      border-radius: var(--radius-md);
+      font-size: 0.875rem;
+      font-weight: 500;
+      text-align: center;
+      transition: background 0.15s;
+    }
+    .benchmark-card a.open-btn:hover {
+      background: var(--accent-hover);
+      color: var(--on-accent);
+      text-decoration: none;
+    }
+    @media (max-width: 720px) {
+      /* title + theme toggle on the first row, the links below */
+      .header-end { display: contents; }
+      .header .theme-toggle { order: 2; }
+      .header .site-links { order: 3; flex-basis: 100%; gap: 6px; }
+      .header .site-link, .header .site-menu__button { padding: 5px 10px; }
+    }
+    @media (max-width: 600px) {
+      .header { padding: 12px 16px; }
+      .container { padding: 24px 16px 40px; }
+    }
+  </style>
+</head>
+<body>
+
+<header class="header">
+  <h1>edge-healer</h1>
+  <div class="header-end">
+    <nav data-site-nav="home" aria-label="Site"></nav>
+    <div class="theme-toggle" data-theme-toggle></div>
+  </div>
+</header>
+
+<main class="container">
+  <section class="paper-hero paper-hero--head home-top" aria-labelledby="paperTitle">
+    <div class="home-top__title">
+      <p class="eyebrow">Universitat Politècnica de Catalunya · FIB · 2025</p>
+      <h2 id="paperTitle">Edge-Healer: Decentralising Kubernetes with Edge Self-Healing</h2>
+      <p class="authors">Davide Lamagna</p>
+      <div class="cta-row">
+        <a class="cta cta--primary" href="docs/blog/">Read the write-up</a>
+        <a class="cta" data-site-href="paper" target="_blank" rel="noopener" title="The paper (PDF)">Read the paper</a>
+        <a class="cta" data-site-href="poster" target="_blank" rel="noopener" title="The poster (PDF)">See the poster</a>
+        <a class="cta" data-site-href="repo">View the code</a>
+      </div>
+    </div>
+    <div class="home-top__intro">
+      <p class="summary">Kubernetes keeps one central brain: the API server, the scheduler and the controllers that
+        replace lost Pods. At the edge, that brain sits on the far side of a thin WAN link. When the link drops, a
+        Pod that dies on a factory gateway stays dead until the link comes back.</p>
+      <p class="summary">edge-healer gives every node just enough of a brain to fix that. An agent on each node
+        gossips its free CPU to its peers through a Serf sidecar. When a Pod goes missing and the API server is
+        unreachable, the agents bid, and the node with the most spare CPU recreates the Pod locally. When the WAN
+        returns, the local changes are reconciled with the control plane.</p>
+    </div>
+  </section>
+
+  <section class="demo" id="demo" aria-labelledby="demoTitle">
+    <h2 class="page-title" id="demoTitle">The experiment, live</h2>
+    <p class="page-subtitle">A small simulation of the testbed: a control plane and three workers, one
+      <code>busybox-spread</code> replica on each. Cut the WAN, kill a pod and watch the agents gossip, bid and
+      rebind it. Timings are illustrative, except the 1&nbsp;s API check the agent makes before acting.</p>
+
+    <div class="card demo-controls">
+      <div class="demo-bar">
+        <button type="button" class="btn-primary" id="demoPlay">Play the experiment</button>
+        <button type="button" class="btn-secondary" id="demoPause" aria-pressed="false">Pause</button>
+        <button type="button" class="btn-secondary" id="demoReset">Reset</button>
+        <label class="demo-speed">Speed
+          <select id="demoSpeed">
+            <option value="0.5">0.5×</option>
+            <option value="1" selected>1×</option>
+            <option value="2">2×</option>
+          </select>
+        </label>
+        <span class="demo-bar__sep" aria-hidden="true"></span>
+        <span class="demo-clock" id="demoClock" aria-hidden="true">t = 0.0 s</span>
+      </div>
+      <div class="demo-bar demo-switches" role="group" aria-label="Cluster conditions">
+        <button type="button" class="switch" id="demoWan" aria-pressed="true" title="Block or restore the workers' access to the API server (iptables DROP on :6443)">WAN link <span class="switch__state" data-state>connected</span></button>
+        <button type="button" class="switch" id="demoHealer" aria-pressed="true" title="Deploy or remove the edge-healer DaemonSet">edge-healer <span class="switch__state" data-state>on</span></button>
+        <button type="button" class="switch" id="demoGossip" aria-pressed="true" title="Pause the Serf gossip between the nodes: each agent's view of its peers goes stale">Gossip <span class="switch__state" data-state>running</span></button>
+      </div>
+      <ol class="demo-steps" id="demoSteps" aria-label="The experiment workflow">
+        <li data-step="1">Block the API<small>iptables DROP :6443</small></li>
+        <li data-step="2">Pod lost<small>removed on a worker</small></li>
+        <li data-step="3">Check &amp; gossip<small>API timeout, free-CPU map</small></li>
+        <li data-step="4">Bid<small>most free CPU wins</small></li>
+        <li data-step="5">Bind locally<small>no scheduler</small></li>
+        <li data-step="6">Reconcile<small>when the WAN returns</small></li>
+      </ol>
+      <p class="demo-say" id="demoSay" aria-live="polite"></p>
+    </div>
+
+    <div class="demo-grid">
+      <div class="card demo-stage">
+        <svg id="demoSvg" viewBox="0 0 720 450" role="img" aria-label="Cluster diagram"></svg>
+        <ul class="demo-legend" aria-label="Legend">
+          <li><i class="k-gossip"></i>gossip (free CPU)</li>
+          <li><i class="k-api"></i>API call</li>
+          <li><i class="k-probe"></i>API check timing out</li>
+          <li><i class="k-run"></i>pod running</li>
+          <li><i class="k-local"></i>bound locally, not yet synced</li>
+          <li><i class="k-dup"></i>duplicate</li>
+        </ul>
+      </div>
+
+      <div class="demo-side">
+        <div class="card">
+          <h3>Workers</h3>
+          <p class="demo-sub">Kill a pod here or click one in the diagram. Extra load makes a node a worse bidder.</p>
+          <div id="demoNodes"></div>
+        </div>
+        <div class="card">
+          <h3>Metrics</h3>
+          <dl class="demo-metrics">
+            <div><dt>busybox replicas running</dt><dd data-metric="running">3 / 3</dd></div>
+            <div><dt>last restore</dt><dd><span data-metric="restore">–</span><small data-metric="restoreBy"></small></dd></div>
+            <div><dt>time with a replica missing</dt><dd data-metric="gap">0.0 s</dd></div>
+            <div><dt><code>bind_conflicts_total</code></dt><dd data-metric="conflicts">0</dd></div>
+            <div><dt><code>peer_updates_total</code></dt><dd data-metric="updates">0</dd></div>
+          </dl>
+        </div>
+        <div class="card">
+          <h3>Free-CPU map in each agent</h3>
+          <p class="demo-sub">Rows are agents, columns are what they believe about each node, from gossip. An agent
+            wins a bid unless a peer looks strictly freer. Stale entries are orange.</p>
+          <table class="demo-views" id="demoViews">
+            <thead><tr><th scope="col">agent</th><th scope="col">worker1</th><th scope="col">worker2</th><th scope="col">worker3</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="card demo-log-card">
+      <h3>Agent logs</h3>
+      <ol class="demo-log" id="demoLog" role="log" aria-label="Simulated agent and cluster logs"></ol>
+    </div>
+  </section>
+
+  <h2 class="page-title">Explore</h2>
+  <p class="page-subtitle">The story in plain words, the paper and poster, and the prototype itself.</p>
+
+  <div class="benchmark-list">
+    <div class="benchmark-card">
+      <h2>Write-up</h2>
+      <p>Why a central control plane is a problem at the edge, how edge-healer works, and what the experiment showed.</p>
+      <a class="open-btn" href="docs/blog/">Read the write-up</a>
+    </div>
+
+    <div class="benchmark-card">
+      <h2>Paper</h2>
+      <p>The full report: Kubernetes' control plane, gossip and SWIM, related work (KubeEdge, KubeFed, Liqo), the design and the evaluation.</p>
+      <a class="open-btn" data-site-href="paper" target="_blank" rel="noopener">Open the PDF</a>
+    </div>
+
+    <div class="benchmark-card">
+      <h2>Poster</h2>
+      <p>The project on one page: the status quo, its limitations, the prototype, the experiment workflow and future work.</p>
+      <a class="open-btn" data-site-href="poster" target="_blank" rel="noopener">Open the poster</a>
+    </div>
+
+    <div class="benchmark-card">
+      <h2>Code</h2>
+      <p>The Kopf operator, the Serf gossip wrapper, the bidding logic, the DaemonSet manifests and the outage scripts.</p>
+      <a class="open-btn" data-site-href="repo">View on GitHub</a>
+    </div>
+
+    <div class="benchmark-card">
+      <h2>Reproduce it</h2>
+      <p>Create a KinD cluster, deploy the DaemonSet, block the API with iptables and remove a Pod from inside a node.</p>
+      <a class="open-btn" href="docs/blog/#reproduce">See the steps</a>
+    </div>
+  </div>
+</main>
+
+<footer data-site-footer></footer>
+
+</body>
+</html>

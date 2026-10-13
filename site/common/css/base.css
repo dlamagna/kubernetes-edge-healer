@@ -1,0 +1,71 @@
+/*
+ * site/common/css/base.css
+ * ----------------------
+ * Design tokens and minimal resets shared by every page of the site.
+ * Each page loads this first, then its own stylesheet.
+ *
+ * The colour tokens (light + dark) live in theme.css, imported here.
+ *
+ * Usage:
+ *   <link rel="stylesheet" href="common/css/base.css">
+ *   <link rel="stylesheet" href="demo/css/demo.css">   <!-- page-specific -->
+ */
+
+@import url("theme.css");
+
+/* -------------------------------------------------------------------------
+ * Reset
+ * ---------------------------------------------------------------------- */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* -------------------------------------------------------------------------
+ * Base
+ * ---------------------------------------------------------------------- */
+body {
+  font-family: var(--font-sans);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+a {
+  color: var(--accent-text);
+  text-decoration: none;
+}
+a:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+
+/* -------------------------------------------------------------------------
+ * Layout helpers
+ * ---------------------------------------------------------------------- */
+.container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+/* -------------------------------------------------------------------------
+ * Header
+ * ---------------------------------------------------------------------- */
+.header {
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  padding: 16px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.header h1 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
